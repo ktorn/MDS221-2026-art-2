@@ -5,6 +5,9 @@ let workW;
 let workH;
 let horizonY;
 let groundY;
+let oilTextureImg;
+let scaleFactor = 1;
+let blockUnit = 72;
 
 const towers = [];
 
@@ -26,19 +29,30 @@ const blockPalette = [
 
 const BOX_W = 280;
 const BOX_H = 24;
-const BASE_SIZE = 42;
-const LAYER_GAP = 4;
+const BASE_SIZE = 72;
+const LAYER_GAP = 6;
+const GAP_RATIO = LAYER_GAP / BASE_SIZE;
 const FADE_DEPTH = 8;
-const TOWER_COUNT = 5;
+const TOWER_COUNT = 4;
 const MAX_LAYERS = 8;
 const AUTO_TRIANGLE_LAYER_INDEX = 7;
+const RANDOM_LAYER_TYPES = ["square", "rectH", "circle"];
+const REF_WIDTH = 1920;
+const REF_HEIGHT = 1080;
+const SQUARE_H_FACTOR = 1.0;
+const RECT_H_FACTOR = 0.64;
+const CIRCLE_H_FACTOR = 1.06;
+const TRIANGLE_H_FACTOR = 0.92;
+
+function preload() {
+  oilTextureImg = loadImage("assets/oil-texture-reference.png");
+}
 
 function setup() {
   createCanvas(windowWidth, windowHeight);
-  noLoop();
+  frameRate(8);
   textFont("monospace");
   initializeTowers();
-  redraw();
 }
 
 function draw() {
@@ -48,11 +62,11 @@ function draw() {
 function keyPressed() {
   const lower = key.toLowerCase();
   if (lower === "s") {
-    addLayer("square");
+    addLayer();
   } else if (lower === "d") {
-    addLayer("rectH");
+    addLayer();
   } else if (lower === "f") {
-    addLayer("rectV");
+    addLayer();
   } else if (lower === "p") {
     saveCanvas("naive-babel-tower", "png");
   }
@@ -60,7 +74,6 @@ function keyPressed() {
 
 function windowResized() {
   resizeCanvas(windowWidth, windowHeight);
-  redraw();
 }
 
 function initializeTowers() {
@@ -76,7 +89,7 @@ function initializeTowers() {
   }
 }
 
-function addLayer(requestedShapeType) {
+function addLayer() {
   const towerIndex = pickTowerIndex();
   if (towerIndex === -1) {
     return;
@@ -85,7 +98,7 @@ function addLayer(requestedShapeType) {
   const targetTower = towers[towerIndex];
   const layerCount = targetTower.layers.length;
   const shouldForceTriangle = layerCount === AUTO_TRIANGLE_LAYER_INDEX;
-  const shapeType = shouldForceTriangle ? "triangle" : requestedShapeType;
+  const shapeType = shouldForceTriangle ? "triangle" : random(RANDOM_LAYER_TYPES);
   const messageIndex = getTotalLayers() % layerMessages.length;
   const message = layerMessages[messageIndex];
 
@@ -93,9 +106,11 @@ function addLayer(requestedShapeType) {
     shapeType,
     message,
     colorHex: random(blockPalette),
-    jitterX: random(-7, 7)
+    jitterX: 0,
+    bubbleSide: random() < 0.5 ? "left" : "right",
+    bubbleOffsetX: random(28, 72),
+    bubbleOffsetY: random(-10, 10)
   });
-  redraw();
 }
 
 function pickTowerIndex() {
@@ -146,47 +161,34 @@ function renderScene() {
 }
 
 function drawFrameAndPanel() {
-  const panelRatio = 0.84;
-  const panelW = min(width * panelRatio, height * panelRatio * 1.06);
-  const panelH = panelW * 0.94;
-  borderPad = max(14, panelW * 0.03);
-
-  const frameX = (width - panelW) * 0.5;
-  const frameY = (height - panelH) * 0.5;
-
-  noStroke();
-  fill(244, 244, 242);
-  rect(frameX - borderPad, frameY - borderPad, panelW + borderPad * 2, panelH + borderPad * 2, 8);
-
-  fill(235, 232, 220);
-  rect(frameX, frameY, panelW, panelH);
-
-  workX = frameX + borderPad;
-  workY = frameY + borderPad;
-  workW = panelW - borderPad * 2;
-  workH = panelH - borderPad * 2;
+  borderPad = 0;
+  workX = 0;
+  workY = 0;
+  workW = width;
+  workH = height;
+  scaleFactor = min(workW / REF_WIDTH, workH / REF_HEIGHT);
   horizonY = workY + workH * 0.52;
-  groundY = workY + workH - 12;
+  groundY = workY + workH - s(12);
+  blockUnit = computeBlockUnitForTargetHeight();
 
   noStroke();
   fill(85, 25, 27, 238);
   rect(workX, workY, workW, workH);
 }
 
+function computeBlockUnitForTargetHeight() {
+  const targetTopY = workY + workH * 0.2;
+  const targetTowerHeight = max(80, groundY - targetTopY);
+  const randomLayerCount = MAX_LAYERS - 1;
+  const randomAvgHeightFactor = (SQUARE_H_FACTOR + RECT_H_FACTOR + CIRCLE_H_FACTOR) / 3;
+  const totalHeightFactor =
+    randomLayerCount * randomAvgHeightFactor +
+    TRIANGLE_H_FACTOR +
+    (MAX_LAYERS - 1) * GAP_RATIO;
+  return targetTowerHeight / totalHeightFactor;
+}
+
 function drawBackgroundTexture() {
-  noStroke();
-  fill(255, 16);
-  for (let i = 0; i < 1200; i++) {
-    rect(random(workX, workX + workW), random(workY, workY + workH), random(0.6, 1.6), random(0.6, 1.6));
-  }
-
-  stroke(240, 210, 190, 32);
-  strokeWeight(1);
-  const stepY = workH / 9;
-  for (let y = workY; y <= workY + workH; y += stepY) {
-    line(workX, y, workX + workW, y);
-  }
-
   noStroke();
   fill(180, 85, 36, 220);
   circle(workX + workW * 0.66, workY + workH * 0.2, workW * 0.13);
@@ -195,18 +197,20 @@ function drawBackgroundTexture() {
 function drawInstruction() {
   noStroke();
   fill(242, 226, 200, 220);
-  textSize(13);
+  textSize(s(14));
   textAlign(LEFT, TOP);
-  text("Build towers: S square, D horizontal, F vertical, P save", workX + 12, workY + 10);
-  text("Random tower assignment (middle towers grow faster)", workX + 12, workY + 28);
-  text(`Total layers: ${getTotalLayers()} / ${TOWER_COUNT * MAX_LAYERS}`, workX + 12, workY + 46);
+  text("4 towers, 8 floors each. Top floor is triangle.", workX + s(16), workY + s(14));
+  text("Press S, D, or F to add a random square/rectangle/circle floor.", workX + s(16), workY + s(34));
+  text(`Total layers: ${getTotalLayers()} / ${TOWER_COUNT * MAX_LAYERS}`, workX + s(16), workY + s(54));
 }
 
 function drawTower() {
+  const scrambleOn = areAllTowersComplete();
+  const flashOn = scrambleOn ? frameCount % 2 === 0 : false;
+
   for (const tower of towers) {
     let currentTop = groundY;
     const baseX = workX + workW * tower.xFactor;
-    const scrambleOn = tower.layers.length >= MAX_LAYERS;
 
     for (let i = 0; i < tower.layers.length; i++) {
       const layer = tower.layers[i];
@@ -215,69 +219,195 @@ function drawTower() {
       const y = currentTop - dim.h;
       const phrase = scrambleOn ? scrambleText(layer.message) : layer.message;
 
-      drawPhrase(tower.layers.length, i, x + dim.w * 0.5, y + dim.h * 0.5, dim.w, phrase);
+      drawBubblePhrase(
+        tower.layers.length,
+        i,
+        x + dim.w * 0.5,
+        y + dim.h * 0.5,
+        phrase,
+        layer.bubbleSide,
+        layer.bubbleOffsetX,
+        layer.bubbleOffsetY,
+        flashOn
+      );
       drawBlock(x, y, dim.w, dim.h, layer.colorHex, layer.shapeType);
 
-      currentTop = y - LAYER_GAP;
+      currentTop = y - getLayerGap();
     }
   }
 }
 
+function areAllTowersComplete() {
+  for (const tower of towers) {
+    if (tower.layers.length < MAX_LAYERS) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function getLayerDimensions(shapeType) {
+  const base = blockUnit;
   if (shapeType === "square") {
-    return { w: BASE_SIZE, h: BASE_SIZE };
+    return { w: base * 1.2, h: base * SQUARE_H_FACTOR };
   }
   if (shapeType === "rectH") {
-    return { w: BASE_SIZE * 1.5, h: BASE_SIZE * 0.62 };
+    return { w: base * 1.72, h: base * RECT_H_FACTOR };
   }
-  if (shapeType === "rectV") {
-    return { w: BASE_SIZE * 0.64, h: BASE_SIZE * 1.24 };
+  if (shapeType === "circle") {
+    return { w: base * 1.06, h: base * CIRCLE_H_FACTOR };
   }
-  return { w: BASE_SIZE * 1.14, h: BASE_SIZE * 0.92 };
+  return { w: base * 1.14, h: base * TRIANGLE_H_FACTOR };
+}
+
+function getLayerGap() {
+  return blockUnit * GAP_RATIO;
 }
 
 function drawBlock(x, y, w, h, colorHex, shapeType) {
   const frontColor = color(colorHex);
-  const sideColor = lerpColor(frontColor, color("#211818"), 0.28);
-  const topColor = lerpColor(frontColor, color("#f3d9a8"), 0.18);
-  const depth = 8;
-  const rise = 5;
 
+  noStroke();
   if (shapeType === "triangle") {
-    noStroke();
     fill(frontColor);
     triangle(x, y + h, x + w * 0.5, y, x + w, y + h);
-
-    fill(sideColor);
-    triangle(x + w, y + h, x + w * 0.5, y, x + w + depth, y + h - rise);
-
-    fill(topColor);
-    triangle(x + w * 0.5, y, x + w * 0.5 + depth, y - rise, x + w, y + h);
+    applyOilTextureToTriangle(x, y, w, h);
+    fill(255, 18);
+    triangle(x, y + h, x + w * 0.5, y, x + w, y + h);
+    drawPaintWear(x, y, w, h, true);
+  } else if (shapeType === "circle") {
+    fill(frontColor);
+    ellipse(x + w * 0.5, y + h * 0.5, w, h);
+    applyOilTextureToCircle(x, y, w, h);
+    fill(255, 18);
+    ellipse(x + w * 0.5, y + h * 0.5, w, h);
+    drawPaintWear(x, y, w, h, false);
   } else {
-    noStroke();
     fill(frontColor);
     rect(x, y, w, h);
-
-    fill(sideColor);
-    quad(x + w, y, x + w + depth, y - rise, x + w + depth, y + h - rise, x + w, y + h);
-
-    fill(topColor);
-    quad(x, y, x + depth, y - rise, x + w + depth, y - rise, x + w, y);
-
-    fill(255, 20);
+    applyOilTextureToRect(x, y, w, h);
+    fill(255, 18);
     rect(x, y, w, h);
+    drawPaintWear(x, y, w, h, false);
   }
 }
 
-function drawPhrase(towerLength, index, centerX, centerY, blockW, textValue) {
+function applyOilTextureToRect(x, y, w, h) {
+  if (!oilTextureImg) {
+    return;
+  }
+
+  const sx = random(max(1, oilTextureImg.width - 220));
+  const sy = random(max(1, oilTextureImg.height - 220));
+  const sw = min(220, oilTextureImg.width - sx);
+  const sh = min(220, oilTextureImg.height - sy);
+
+  push();
+  blendMode(MULTIPLY);
+  tint(255, 88);
+  image(oilTextureImg, x, y, w, h, sx, sy, sw, sh);
+  pop();
+}
+
+function applyOilTextureToTriangle(x, y, w, h) {
+  if (!oilTextureImg) {
+    return;
+  }
+
+  const sx = random(max(1, oilTextureImg.width - 240));
+  const sy = random(max(1, oilTextureImg.height - 240));
+  const sw = min(240, oilTextureImg.width - sx);
+  const sh = min(240, oilTextureImg.height - sy);
+
+  const ctx = drawingContext;
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(x, y + h);
+  ctx.lineTo(x + w * 0.5, y);
+  ctx.lineTo(x + w, y + h);
+  ctx.closePath();
+  ctx.clip();
+
+  blendMode(MULTIPLY);
+  tint(255, 92);
+  image(oilTextureImg, x, y, w, h, sx, sy, sw, sh);
+  blendMode(BLEND);
+  noTint();
+  ctx.restore();
+}
+
+function applyOilTextureToCircle(x, y, w, h) {
+  if (!oilTextureImg) {
+    return;
+  }
+
+  const sx = random(max(1, oilTextureImg.width - 220));
+  const sy = random(max(1, oilTextureImg.height - 220));
+  const sw = min(220, oilTextureImg.width - sx);
+  const sh = min(220, oilTextureImg.height - sy);
+
+  const ctx = drawingContext;
+  ctx.save();
+  ctx.beginPath();
+  ctx.ellipse(x + w * 0.5, y + h * 0.5, w * 0.5, h * 0.5, 0, 0, TWO_PI);
+  ctx.closePath();
+  ctx.clip();
+
+  blendMode(MULTIPLY);
+  tint(255, 90);
+  image(oilTextureImg, x, y, w, h, sx, sy, sw, sh);
+  blendMode(BLEND);
+  noTint();
+  ctx.restore();
+}
+
+function drawPaintWear(x, y, w, h, isTriangle) {
+  // Subtle paint chips and brush streaks on each block.
+  noStroke();
+  for (let i = 0; i < 6; i++) {
+    fill(255, random(8, 22));
+    const rx = random(x + 2, x + w - 8);
+    const ry = random(y + 2, y + h - 4);
+    const rw = random(4, max(5, w * 0.2));
+    const rh = random(2, max(3, h * 0.2));
+    if (isTriangle) {
+      ellipse(rx, ry, rw * 0.4, rh * 0.5);
+    } else {
+      rect(rx, ry, rw, rh);
+    }
+  }
+}
+
+function drawBubblePhrase(
+  towerLength,
+  index,
+  blockCenterX,
+  blockCenterY,
+  textValue,
+  side,
+  offsetX,
+  offsetY,
+  flashOn
+) {
   const depthFromTop = towerLength - 1 - index;
   const alpha = map(depthFromTop, 0, FADE_DEPTH, 230, 18, true);
+  const flashAlpha = flashOn ? alpha * 0.35 : alpha;
+  const bubbleW = s(BOX_W);
+  const bubbleH = s(BOX_H);
+  const desiredY = blockCenterY + offsetY - bubbleH * 0.5;
+  const bubbleY = constrain(desiredY, workY + s(8), workY + workH - bubbleH - s(8));
+  const nearGap = s(14);
+  const desiredX =
+    side === "left"
+      ? blockCenterX - bubbleW - nearGap - offsetX * 0.25
+      : blockCenterX + nearGap + offsetX * 0.25;
+  const bubbleX = constrain(desiredX, workX + s(8), workX + workW - bubbleW - s(8));
 
   noStroke();
-  fill(245, 235, 220, alpha * 0.75);
-  textSize(11);
+  fill(245, 235, 220, flashAlpha);
+  textSize(s(11));
   textAlign(CENTER, CENTER);
-  text(textValue, centerX, centerY, min(BOX_W, blockW * 0.9), BOX_H);
+  text(textValue, bubbleX + bubbleW * 0.5, bubbleY + bubbleH * 0.5, bubbleW * 0.9, bubbleH);
 }
 
 function scrambleText(source) {
@@ -293,3 +423,8 @@ function scrambleText(source) {
   }
   return out;
 }
+
+function s(value) {
+  return value * scaleFactor;
+}
+
