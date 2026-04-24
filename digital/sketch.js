@@ -36,12 +36,10 @@ const FADE_DEPTH = 8;
 const TOWER_COUNT = 4;
 const MAX_LAYERS = 8;
 const AUTO_TRIANGLE_LAYER_INDEX = 7;
-const RANDOM_LAYER_TYPES = ["square", "rectH", "circle"];
 const REF_WIDTH = 1920;
 const REF_HEIGHT = 1080;
 const SQUARE_H_FACTOR = 1.0;
 const RECT_H_FACTOR = 0.64;
-const CIRCLE_H_FACTOR = 1.06;
 const TRIANGLE_H_FACTOR = 0.92;
 
 function preload() {
@@ -62,11 +60,9 @@ function draw() {
 function keyPressed() {
   const lower = key.toLowerCase();
   if (lower === "s") {
-    addLayer();
-  } else if (lower === "d") {
-    addLayer();
-  } else if (lower === "f") {
-    addLayer();
+    addLayer("square");
+  } else if (lower === "r") {
+    addLayer("rectH");
   } else if (lower === "p") {
     saveCanvas("naive-babel-tower", "png");
   }
@@ -89,7 +85,7 @@ function initializeTowers() {
   }
 }
 
-function addLayer() {
+function addLayer(requestedShapeType) {
   const towerIndex = pickTowerIndex();
   if (towerIndex === -1) {
     return;
@@ -98,7 +94,8 @@ function addLayer() {
   const targetTower = towers[towerIndex];
   const layerCount = targetTower.layers.length;
   const shouldForceTriangle = layerCount === AUTO_TRIANGLE_LAYER_INDEX;
-  const shapeType = shouldForceTriangle ? "triangle" : random(RANDOM_LAYER_TYPES);
+  const requested = requestedShapeType === "rectH" ? "rectH" : "square";
+  const shapeType = shouldForceTriangle ? "triangle" : requested;
   const messageIndex = getTotalLayers() % layerMessages.length;
   const message = layerMessages[messageIndex];
 
@@ -106,6 +103,8 @@ function addLayer() {
     shapeType,
     message,
     colorHex: random(blockPalette),
+    rectWidthFactor: random(1.45, 2.05),
+    rectHeightFactor: random(0.5, 0.72),
     jitterX: 0,
     bubbleSide: random() < 0.5 ? "left" : "right",
     bubbleOffsetX: random(28, 72),
@@ -180,7 +179,7 @@ function computeBlockUnitForTargetHeight() {
   const targetTopY = workY + workH * 0.2;
   const targetTowerHeight = max(80, groundY - targetTopY);
   const randomLayerCount = MAX_LAYERS - 1;
-  const randomAvgHeightFactor = (SQUARE_H_FACTOR + RECT_H_FACTOR + CIRCLE_H_FACTOR) / 3;
+  const randomAvgHeightFactor = (SQUARE_H_FACTOR + RECT_H_FACTOR) * 0.5;
   const totalHeightFactor =
     randomLayerCount * randomAvgHeightFactor +
     TRIANGLE_H_FACTOR +
@@ -200,7 +199,7 @@ function drawInstruction() {
   textSize(s(14));
   textAlign(LEFT, TOP);
   text("4 towers, 8 floors each. Top floor is triangle.", workX + s(16), workY + s(14));
-  text("Press S, D, or F to add a random square/rectangle/circle floor.", workX + s(16), workY + s(34));
+  text("Press S for square, R for random-width horizontal rectangle.", workX + s(16), workY + s(34));
   text(`Total layers: ${getTotalLayers()} / ${TOWER_COUNT * MAX_LAYERS}`, workX + s(16), workY + s(54));
 }
 
@@ -214,7 +213,7 @@ function drawTower() {
 
     for (let i = 0; i < tower.layers.length; i++) {
       const layer = tower.layers[i];
-      const dim = getLayerDimensions(layer.shapeType);
+      const dim = getLayerDimensions(layer);
       const x = baseX + layer.jitterX - dim.w * 0.5;
       const y = currentTop - dim.h;
       const phrase = scrambleOn ? scrambleText(layer.message) : layer.message;
@@ -224,6 +223,7 @@ function drawTower() {
         i,
         x + dim.w * 0.5,
         y + dim.h * 0.5,
+        dim.w,
         phrase,
         layer.bubbleSide,
         layer.bubbleOffsetX,
@@ -246,16 +246,14 @@ function areAllTowersComplete() {
   return true;
 }
 
-function getLayerDimensions(shapeType) {
+function getLayerDimensions(layer) {
+  const shapeType = layer.shapeType;
   const base = blockUnit;
   if (shapeType === "square") {
     return { w: base * 1.2, h: base * SQUARE_H_FACTOR };
   }
   if (shapeType === "rectH") {
-    return { w: base * 1.72, h: base * RECT_H_FACTOR };
-  }
-  if (shapeType === "circle") {
-    return { w: base * 1.06, h: base * CIRCLE_H_FACTOR };
+    return { w: base * layer.rectWidthFactor, h: base * layer.rectHeightFactor };
   }
   return { w: base * 1.14, h: base * TRIANGLE_H_FACTOR };
 }
@@ -275,13 +273,6 @@ function drawBlock(x, y, w, h, colorHex, shapeType) {
     fill(255, 18);
     triangle(x, y + h, x + w * 0.5, y, x + w, y + h);
     drawPaintWear(x, y, w, h, true);
-  } else if (shapeType === "circle") {
-    fill(frontColor);
-    ellipse(x + w * 0.5, y + h * 0.5, w, h);
-    applyOilTextureToCircle(x, y, w, h);
-    fill(255, 18);
-    ellipse(x + w * 0.5, y + h * 0.5, w, h);
-    drawPaintWear(x, y, w, h, false);
   } else {
     fill(frontColor);
     rect(x, y, w, h);
@@ -336,31 +327,6 @@ function applyOilTextureToTriangle(x, y, w, h) {
   ctx.restore();
 }
 
-function applyOilTextureToCircle(x, y, w, h) {
-  if (!oilTextureImg) {
-    return;
-  }
-
-  const sx = random(max(1, oilTextureImg.width - 220));
-  const sy = random(max(1, oilTextureImg.height - 220));
-  const sw = min(220, oilTextureImg.width - sx);
-  const sh = min(220, oilTextureImg.height - sy);
-
-  const ctx = drawingContext;
-  ctx.save();
-  ctx.beginPath();
-  ctx.ellipse(x + w * 0.5, y + h * 0.5, w * 0.5, h * 0.5, 0, 0, TWO_PI);
-  ctx.closePath();
-  ctx.clip();
-
-  blendMode(MULTIPLY);
-  tint(255, 90);
-  image(oilTextureImg, x, y, w, h, sx, sy, sw, sh);
-  blendMode(BLEND);
-  noTint();
-  ctx.restore();
-}
-
 function drawPaintWear(x, y, w, h, isTriangle) {
   // Subtle paint chips and brush streaks on each block.
   noStroke();
@@ -383,6 +349,7 @@ function drawBubblePhrase(
   index,
   blockCenterX,
   blockCenterY,
+  _blockW,
   textValue,
   side,
   offsetX,
@@ -392,22 +359,12 @@ function drawBubblePhrase(
   const depthFromTop = towerLength - 1 - index;
   const alpha = map(depthFromTop, 0, FADE_DEPTH, 230, 18, true);
   const flashAlpha = flashOn ? alpha * 0.35 : alpha;
-  const bubbleW = s(BOX_W);
-  const bubbleH = s(BOX_H);
-  const desiredY = blockCenterY + offsetY - bubbleH * 0.5;
-  const bubbleY = constrain(desiredY, workY + s(8), workY + workH - bubbleH - s(8));
-  const nearGap = s(14);
-  const desiredX =
-    side === "left"
-      ? blockCenterX - bubbleW - nearGap - offsetX * 0.25
-      : blockCenterX + nearGap + offsetX * 0.25;
-  const bubbleX = constrain(desiredX, workX + s(8), workX + workW - bubbleW - s(8));
 
   noStroke();
   fill(245, 235, 220, flashAlpha);
-  textSize(s(11));
+  textSize(s(20));
   textAlign(CENTER, CENTER);
-  text(textValue, bubbleX + bubbleW * 0.5, bubbleY + bubbleH * 0.5, bubbleW * 0.9, bubbleH);
+  text(textValue, blockCenterX, blockCenterY);
 }
 
 function scrambleText(source) {
