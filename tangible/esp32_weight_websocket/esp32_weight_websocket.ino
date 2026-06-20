@@ -7,6 +7,7 @@
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
 #include <cstring>
+#include <cstdarg>
 #include <esp_wifi.h>
 
 #if __has_include("secrets.h")
@@ -88,6 +89,45 @@ static unsigned long gLastRegistryPostMs = 0;
 WebSocketsServer webSocket(81);
 static WiFiClientSecure sTls;
 static bool sTlsReady = false;
+static uint8_t gCommandReplyClient = 255;
+
+void handleCommand(String command);
+
+static void commandReply(const char* line) {
+  Serial.println(line);
+  if (gCommandReplyClient < WEBSOCKETS_SERVER_CLIENT_MAX) {
+    webSocket.sendTXT(gCommandReplyClient, line);
+  }
+}
+
+static void commandReplyf(const char* fmt, ...) {
+  char buf[160];
+  va_list args;
+  va_start(args, fmt);
+  vsnprintf(buf, sizeof(buf), fmt, args);
+  va_end(args);
+  commandReply(buf);
+}
+
+static void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t* payload, size_t length) {
+  if (type != WStype_TEXT || !payload || length == 0) {
+    return;
+  }
+
+  String command;
+  command.reserve(length + 1);
+  for (size_t i = 0; i < length; i++) {
+    command += (char)payload[i];
+  }
+  command.trim();
+  if (command.length() == 0) {
+    return;
+  }
+
+  gCommandReplyClient = num;
+  handleCommand(command);
+  gCommandReplyClient = 255;
+}
 
 static const char* wlReason(int s) {
   switch (s) {
@@ -287,6 +327,7 @@ void setup() {
     }
 
     webSocket.begin();
+    webSocket.onEvent(onWebSocketEvent);
     registerWithCloud();
     gLastRegistryPostMs = millis();
 
@@ -345,13 +386,13 @@ void handleCommand(String command) {
     if (command == "do_tare") {
         doTare();
     } else if (command == "check_item") {
-        Serial.println(isItemOn ? "status_item_on" : "status_item_off");
+        commandReply(isItemOn ? "status_item_on" : "status_item_off");
     } else if (command == "list_mems") {
         listMems();
     } else if (command == "clear_mems") {
         clearMems();
     } else if (command == "get_mem_tolerance") {
-        Serial.printf("mem_tolerance: %.2f\n", memMatchTolerance);
+        commandReplyf("mem_tolerance: %.2f", memMatchTolerance);
     } else if (command.startsWith("set_mem_tolerance")) {
         handleSetMemToleranceCommand(command);
     } else if (command.startsWith("set_mem_")) {
@@ -363,22 +404,22 @@ void handleCommand(String command) {
     } else if (command == "help") {
     printHelp();
     } else {
-        Serial.println("ERROR: unknown_command");
+        commandReply("ERROR: unknown_command");
     }
 }
 
 void printHelp() {
-    Serial.println("Available commands:");
-    Serial.println("  help");
-    Serial.println("  do_tare");
-    Serial.println("  check_item");
-    Serial.println("  set_mem_1 ... set_mem_9");
-    Serial.println("  unset_mem_1 ... unset_mem_9");
-    Serial.println("  get_mem_1 ... get_mem_9");
-    Serial.println("  list_mems");
-    Serial.println("  clear_mems");
-    Serial.println("  set_mem_tolerance <value>");
-    Serial.println("  get_mem_tolerance");
+    commandReply("Available commands:");
+    commandReply("  help");
+    commandReply("  do_tare");
+    commandReply("  check_item");
+    commandReply("  set_mem_1 ... set_mem_9");
+    commandReply("  unset_mem_1 ... unset_mem_9");
+    commandReply("  get_mem_1 ... get_mem_9");
+    commandReply("  list_mems");
+    commandReply("  clear_mems");
+    commandReply("  set_mem_tolerance <value>");
+    commandReply("  get_mem_tolerance");
 }
 
 void checkItemStateWithStableWeight(float currentWeight) {
@@ -452,12 +493,12 @@ void handleSetMemCommand(String command) {
     int id = command.substring(8).toInt();  // "set_mem_1" -> 1
 
     if (id < 1 || id > MAX_MEM_ITEMS) {
-        Serial.println("set_mem_ERROR: invalid_id");
+        commandReply("set_mem_ERROR: invalid_id");
         return;
     }
 
     if (!scale.is_ready()) {
-        Serial.println("set_mem_ERROR: scale_not_ready");
+        commandReply("set_mem_ERROR: scale_not_ready");
         return;
     }
 
@@ -466,15 +507,15 @@ void handleSetMemCommand(String command) {
     latestWeight = weight;
 
     if (weight < ITEM_ON_THRESHOLD) {
-        Serial.println("set_mem_ERROR: no_item_detected");
+        commandReply("set_mem_ERROR: no_item_detected");
         return;
     }
 
     int overlappingId = findOverlappingMemSlot(id, weight);
 
     if (overlappingId > 0) {
-        Serial.printf(
-            "set_mem_%d_ERROR: overlaps_mem_%d existing=%.2f new=%.2f tolerance=%.2f\n",
+        commandReplyf(
+            "set_mem_%d_ERROR: overlaps_mem_%d existing=%.2f new=%.2f tolerance=%.2f",
             id,
             overlappingId,
             memWeights[overlappingId],
@@ -489,14 +530,14 @@ void handleSetMemCommand(String command) {
 
     saveMemSlot(id);
 
-    Serial.printf("set_mem_%d_OK: %.2f\n", id, weight);
+    commandReplyf("set_mem_%d_OK: %.2f", id, weight);
 }
 
 void handleUnsetMemCommand(String command) {
     int id = command.substring(10).toInt();  // "unset_mem_1" -> 1
 
     if (id < 1 || id > MAX_MEM_ITEMS) {
-        Serial.println("unset_mem_ERROR: invalid_id");
+        commandReply("unset_mem_ERROR: invalid_id");
         return;
     }
 
@@ -505,23 +546,23 @@ void handleUnsetMemCommand(String command) {
 
     saveMemSlot(id);
 
-    Serial.printf("unset_mem_%d_OK\n", id);
+    commandReplyf("unset_mem_%d_OK", id);
 }
 
 void handleGetMemCommand(String command) {
     int id = command.substring(8).toInt();  // "get_mem_1" -> 1
 
     if (id < 1 || id > MAX_MEM_ITEMS) {
-        Serial.println("get_mem_ERROR: invalid_id");
+        commandReply("get_mem_ERROR: invalid_id");
         return;
     }
 
     if (!memEnabled[id]) {
-        Serial.printf("mem_%d: unset\n", id);
+        commandReplyf("mem_%d: unset", id);
         return;
     }
 
-    Serial.printf("mem_%d: %.2f\n", id, memWeights[id]);
+    commandReplyf("mem_%d: %.2f", id, memWeights[id]);
 }
 
 void handleSetMemToleranceCommand(String command) {
@@ -531,7 +572,7 @@ void handleSetMemToleranceCommand(String command) {
     int spaceIndex = command.indexOf(' ');
 
     if (spaceIndex < 0) {
-        Serial.println("set_mem_tolerance_ERROR: missing_value");
+        commandReply("set_mem_tolerance_ERROR: missing_value");
         return;
     }
 
@@ -541,7 +582,7 @@ void handleSetMemToleranceCommand(String command) {
     float newTolerance = valueString.toFloat();
 
     if (newTolerance <= 0.0) {
-        Serial.println("set_mem_tolerance_ERROR: invalid_value");
+        commandReply("set_mem_tolerance_ERROR: invalid_value");
         return;
     }
 
@@ -551,28 +592,28 @@ void handleSetMemToleranceCommand(String command) {
     prefs.putFloat("tol", memMatchTolerance);
     prefs.end();
 
-    Serial.printf("set_mem_tolerance_OK: %.2f\n", memMatchTolerance);
+    commandReplyf("set_mem_tolerance_OK: %.2f", memMatchTolerance);
 
     // Changing tolerance may make existing memories overlap.
     warnIfAnyMemOverlaps();
 }
 
 void listMems() {
-    Serial.printf("mem_tolerance: %.2f\n", memMatchTolerance);
+    commandReplyf("mem_tolerance: %.2f", memMatchTolerance);
 
     bool anySet = false;
 
     for (int i = 1; i <= MAX_MEM_ITEMS; i++) {
         if (memEnabled[i]) {
-            Serial.printf("mem_%d: %.2f\n", i, memWeights[i]);
+            commandReplyf("mem_%d: %.2f", i, memWeights[i]);
             anySet = true;
         } else {
-            Serial.printf("mem_%d: unset\n", i);
+            commandReplyf("mem_%d: unset", i);
         }
     }
 
     if (!anySet) {
-        Serial.println("list_mems: empty");
+        commandReply("list_mems: empty");
     }
 
     warnIfAnyMemOverlaps();
@@ -585,7 +626,7 @@ void clearMems() {
         saveMemSlot(i);
     }
 
-    Serial.println("clear_mems_OK");
+    commandReply("clear_mems_OK");
 }
 
 void loadMemWeights() {
@@ -676,8 +717,8 @@ bool warnIfAnyMemOverlaps() {
             }
 
             if (memWeightsOverlap(memWeights[i], memWeights[j])) {
-                Serial.printf(
-                    "WARNING: mem_%d overlaps mem_%d weight_%d=%.2f weight_%d=%.2f tolerance=%.2f\n",
+                commandReplyf(
+                    "WARNING: mem_%d overlaps mem_%d weight_%d=%.2f weight_%d=%.2f tolerance=%.2f",
                     i,
                     j,
                     i,
@@ -697,7 +738,7 @@ bool warnIfAnyMemOverlaps() {
 
 void doTare() {
     turnLedOff();
-    Serial.println("Taring...");
+    commandReply("Taring...");
 
     // Tare must be done with the scale empty / at rest.
     scale.tare(20);
@@ -718,7 +759,7 @@ void doTare() {
     latestWeight = 0.0;
     stableReadCount = 0;
 
-    Serial.printf("tare_OK, saved offset: %ld\n", newOffset);
+    commandReplyf("tare_OK, saved offset: %ld", newOffset);
     turnLedOn();
 }
 

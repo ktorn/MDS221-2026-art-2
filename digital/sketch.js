@@ -41,6 +41,7 @@ const REF_HEIGHT = 1080;
 const SQUARE_H_FACTOR = 1.0;
 const RECT_H_FACTOR = 0.64;
 const TRIANGLE_H_FACTOR = 0.92;
+const LAYER_GHOST_MS = 720;
 
 const APP_SECRETS = window.APP_SECRETS || {};
 const REGISTRY_BASE_URL =
@@ -66,6 +67,10 @@ let socket = null;
 let socketStatus = "idle";
 let lastWeightMessage = "";
 let lastMessageAt = 0;
+let showSensorPane = false;
+let sensorPendingCommand = null;
+let sensorLog = [];
+const SENSOR_LOG_MAX = 16;
 
 function preload() {
   oilTextureImg = loadImage("assets/oil-texture-reference.png");
@@ -81,17 +86,112 @@ function setup() {
 
 function draw() {
   renderScene();
+  frameRate(hasActiveLayerAnimations() ? 30 : 8);
 }
 
 function keyPressed() {
+  if (keyCode === ESCAPE) {
+    showSensorPane = false;
+    sensorPendingCommand = null;
+    return false;
+  }
+
   const lower = key.toLowerCase();
-  if (lower === "s") {
-    addLayer("square");
-  } else if (lower === "r") {
+
+  if (lower === "s" && !showSensorPane) {
+    showSensorPane = true;
+    sensorPendingCommand = null;
+    return false;
+  }
+
+  if (showSensorPane && handleSensorPaneKey(key)) {
+    return false;
+  }
+
+  if (lower === "r") {
     addLayer("rectH");
   } else if (lower === "p") {
     saveCanvas("naive-babel-tower", "png");
   }
+  return false;
+}
+
+function handleSensorPaneKey(key) {
+  if (sensorPendingCommand === "set" || sensorPendingCommand === "unset") {
+    const digit = parseInt(key, 10);
+    if (digit >= 1 && digit <= 9) {
+      const command =
+        sensorPendingCommand === "set"
+          ? `set_mem_${digit}`
+          : `unset_mem_${digit}`;
+      sendEspCommand(command);
+      sensorPendingCommand = null;
+      return true;
+    }
+    appendSensorLog(`cancelled (expected 1-9, got "${key}")`);
+    sensorPendingCommand = null;
+    return true;
+  }
+
+  const lower = key.toLowerCase();
+  if (lower === "s") {
+    if (key === "S") {
+      showSensorPane = false;
+      sensorPendingCommand = null;
+      return true;
+    }
+    sensorPendingCommand = "set";
+    appendSensorLog("set mem: press 1-9…");
+    return true;
+  }
+  if (lower === "u") {
+    sensorPendingCommand = "unset";
+    appendSensorLog("unset mem: press 1-9…");
+    return true;
+  }
+  if (lower === "r") {
+    sendEspCommand("clear_mems");
+    return true;
+  }
+  if (lower === "l") {
+    sendEspCommand("list_mems");
+    return true;
+  }
+  if (lower === "t") {
+    sendEspCommand("do_tare");
+    return true;
+  }
+  return false;
+}
+
+function sendEspCommand(command) {
+  appendSensorLog(`> ${command}`);
+  if (!socket || socket.readyState !== WebSocket.OPEN) {
+    appendSensorLog("ERROR: WebSocket not connected");
+    return;
+  }
+  socket.send(command);
+}
+
+function appendSensorLog(line) {
+  sensorLog.push(line);
+  if (sensorLog.length > SENSOR_LOG_MAX) {
+    sensorLog.shift();
+  }
+}
+
+function handleWebSocketMessage(rawLine) {
+  const trimmed = rawLine.trim();
+  if (!trimmed) {
+    return;
+  }
+
+  if (trimmed.startsWith("notify_")) {
+    handleWeightMessage(trimmed);
+    return;
+  }
+
+  appendSensorLog(trimmed);
 }
 
 function windowResized() {
@@ -134,7 +234,8 @@ function addLayer(requestedShapeType) {
     jitterX: 0,
     bubbleSide: random() < 0.5 ? "left" : "right",
     bubbleOffsetX: random(28, 72),
-    bubbleOffsetY: random(-10, 10)
+    bubbleOffsetY: random(-10, 10),
+    ghostBornAt: millis()
   });
 
   return towerIndex;
@@ -258,7 +359,7 @@ function connectWebSocket() {
   };
 
   socket.onmessage = (event) => {
-    handleWeightMessage(String(event.data));
+    handleWebSocketMessage(String(event.data));
     lastMessageAt = millis();
   };
 }
@@ -308,6 +409,9 @@ function renderScene() {
   drawBackgroundTexture();
   drawInstruction();
   drawTower();
+  if (showSensorPane) {
+    drawSensorPane();
+  }
 }
 
 function drawFrameAndPanel() {
@@ -350,12 +454,51 @@ function drawInstruction() {
   textSize(s(14));
   textAlign(LEFT, TOP);
   text("4 towers, 8 floors each. Top floor is triangle.", workX + s(16), workY + s(14));
-  text("Press S for square, R for random-width horizontal rectangle.", workX + s(16), workY + s(34));
+  text("S: open sensor pane | Esc: close | R: test rect | P: save PNG", workX + s(16), workY + s(34));
   text(`Total layers: ${getTotalLayers()} / ${TOWER_COUNT * MAX_LAYERS}`, workX + s(16), workY + s(54));
   text(`WebSocket: ${socketStatus}`, workX + s(16), workY + s(74));
   if (lastWeightMessage) {
     text(`Last event: ${lastWeightMessage}`, workX + s(16), workY + s(94));
   }
+}
+
+function drawSensorPane() {
+  const paneW = min(workW * 0.42, s(520));
+  const paneH = min(workH * 0.55, s(360));
+  const paneX = workX + workW - paneW - s(16);
+  const paneY = workY + s(120);
+  const lineH = s(18);
+
+  push();
+  noStroke();
+  fill(20, 20, 24, 230);
+  rect(paneX, paneY, paneW, paneH, s(8));
+  fill(245, 235, 220, 240);
+  textSize(s(14));
+  textAlign(LEFT, TOP);
+  text("Sensor pane (S open | Esc or Shift+S close)", paneX + s(12), paneY + s(10));
+  text("s + 1-9  set mem    u + 1-9  unset mem", paneX + s(12), paneY + s(30));
+  text("l  list mems   r  reset all   t  tare", paneX + s(12), paneY + s(48));
+
+  fill(245, 235, 220, 180);
+  textSize(s(12));
+  let y = paneY + s(72);
+  const maxLines = floor((paneH - s(84)) / lineH);
+  const start = max(0, sensorLog.length - maxLines);
+  for (let i = start; i < sensorLog.length; i++) {
+    text(sensorLog[i], paneX + s(12), y, paneW - s(24), lineH + s(2));
+    y += lineH;
+  }
+
+  if (sensorPendingCommand) {
+    fill(255, 220, 120, 240);
+    text(
+      sensorPendingCommand === "set" ? "Waiting: mem slot 1-9…" : "Waiting: unset slot 1-9…",
+      paneX + s(12),
+      paneY + paneH - s(28)
+    );
+  }
+  pop();
 }
 
 function drawTower() {
@@ -372,6 +515,13 @@ function drawTower() {
       const x = baseX + layer.jitterX - dim.w * 0.5;
       const y = currentTop - dim.h;
       const phrase = scrambleOn ? scrambleText(layer.message) : layer.message;
+      const cx = x + dim.w * 0.5;
+      const cy = y + dim.h * 0.5;
+      const ghost = getLayerEmanationGhost(layer);
+
+      if (ghost.active) {
+        drawLayerEmanatingGhost(layer, x, y, dim, cx, cy, ghost.scale, ghost.alpha);
+      }
 
       drawBubblePhrase(
         tower.layers.length,
@@ -415,6 +565,63 @@ function getLayerDimensions(layer) {
 
 function getLayerGap() {
   return blockUnit * GAP_RATIO;
+}
+
+function hasActiveLayerAnimations() {
+  for (const tower of towers) {
+    for (const layer of tower.layers) {
+      if (layer.ghostBornAt != null && millis() - layer.ghostBornAt < LAYER_GHOST_MS) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+function getLayerEmanationGhost(layer) {
+  if (layer.ghostBornAt == null) {
+    return { active: false };
+  }
+
+  const t = constrain((millis() - layer.ghostBornAt) / LAYER_GHOST_MS, 0, 1);
+  if (t >= 1) {
+    layer.ghostBornAt = null;
+    return { active: false };
+  }
+
+  const scale = lerp(1, 2.35, pow(t, 0.7));
+  const alpha = lerp(175, 0, pow(t, 1.75));
+
+  return { active: true, scale, alpha };
+}
+
+function drawLayerEmanatingGhost(layer, x, y, dim, cx, cy, ghostScale, ghostAlpha) {
+  if (ghostAlpha <= 2) {
+    return;
+  }
+
+  push();
+  drawingContext.globalAlpha = ghostAlpha / 255;
+  translate(cx, cy);
+  scale(ghostScale);
+  translate(-cx, -cy);
+
+  const blockColor = color(layer.colorHex);
+  noStroke();
+  fill(red(blockColor), green(blockColor), blue(blockColor), 120);
+  if (layer.shapeType === "triangle") {
+    triangle(x, y + dim.h, x + dim.w * 0.5, y, x + dim.w, y + dim.h);
+  } else {
+    rect(x, y, dim.w, dim.h);
+  }
+
+  fill(255, 250, 235, 90);
+  if (layer.shapeType === "triangle") {
+    triangle(x, y + dim.h, x + dim.w * 0.5, y, x + dim.w, y + dim.h);
+  } else {
+    rect(x, y, dim.w, dim.h);
+  }
+  pop();
 }
 
 function drawBlock(x, y, w, h, colorHex, shapeType) {

@@ -74,6 +74,8 @@ notify_weight: 42.50
 
 ### Serial commands (calibration)
 
+Commands work over **Serial Monitor** or **WebSocket** from the digital sketch sensor pane (Shift+S).
+
 | Command | Purpose |
 |---------|---------|
 | `do_tare` | Zero the scale (empty platform) |
@@ -84,6 +86,8 @@ notify_weight: 42.50
 | `clear_mems` | Clear all slots |
 | `set_mem_tolerance 4.0` | Weight match tolerance (grams) |
 | `help` | List commands |
+
+**Sensor pane (digital sketch):** `S` opens the pane (click the canvas first so it has keyboard focus). `Esc` or Shift+S closes it. `s` then 1–9 sets mem, `u` then 1–9 unsets, `l` lists, `r` clears all mems, `t` tares.
 
 ### Connect the digital sketch (registry lookup)
 
