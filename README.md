@@ -91,7 +91,7 @@ Same pattern as [MDS221-2026-art-4](https://github.com/ktorn/MDS221-2026-art-4):
 
 1. Copy `digital/secrets.example.js` to `digital/secrets.js` (same `registryToken` and `deviceId` as `secrets.h`).
 2. On startup the page calls the cloud registry `/lookup` endpoint and connects to `ws://<lan_ip>:81`.
-3. Place a memorized block on the scale — `notify_item_1` adds a **square** layer, `notify_item_2` adds a **horizontal rectangle**; `notify_item_off` removes the last layer.
+3. Place a memorized block on the scale — each `notify_item_1` adds a **square** layer, each `notify_item_2` adds a **horizontal rectangle**. Lifting the block (`notify_item_off`) does not remove layers; reuse the same two blocks to keep stacking.
 
 Overrides:
 

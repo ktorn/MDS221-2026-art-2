@@ -66,7 +66,6 @@ let socket = null;
 let socketStatus = "idle";
 let lastWeightMessage = "";
 let lastMessageAt = 0;
-let lastPlacedTowerIndex = -1;
 
 function preload() {
   oilTextureImg = loadImage("assets/oil-texture-reference.png");
@@ -141,21 +140,6 @@ function addLayer(requestedShapeType) {
   return towerIndex;
 }
 
-function removeLastLayer() {
-  if (lastPlacedTowerIndex >= 0 && towers[lastPlacedTowerIndex]?.layers.length > 0) {
-    towers[lastPlacedTowerIndex].layers.pop();
-    return;
-  }
-
-  for (let i = towers.length - 1; i >= 0; i--) {
-    if (towers[i].layers.length > 0) {
-      towers[i].layers.pop();
-      lastPlacedTowerIndex = i;
-      return;
-    }
-  }
-}
-
 function shapeForItemId(itemId) {
   return ITEM_SHAPE_MAP[itemId] || "square";
 }
@@ -171,18 +155,15 @@ function handleWeightMessage(line) {
   const itemMatch = trimmed.match(/^notify_item_(\d+)$/);
   if (itemMatch) {
     const itemId = parseInt(itemMatch[1], 10);
-    lastPlacedTowerIndex = addLayer(shapeForItemId(itemId));
+    addLayer(shapeForItemId(itemId));
     return;
   }
 
   if (trimmed === "notify_item_on") {
-    lastPlacedTowerIndex = addLayer("square");
-    return;
+    addLayer("square");
   }
 
-  if (trimmed === "notify_item_off") {
-    removeLastLayer();
-  }
+  // notify_item_off: item lifted from scale — towers keep growing; blocks are reused.
 }
 
 function readUrlConfig() {
