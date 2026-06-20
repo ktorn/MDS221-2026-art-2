@@ -42,6 +42,9 @@ const SQUARE_H_FACTOR = 1.0;
 const RECT_H_FACTOR = 0.64;
 const TRIANGLE_H_FACTOR = 0.92;
 const LAYER_GHOST_MS = 720;
+const MAX_LAYER_WIDTH_FACTOR = 2.05;
+const PORTRAIT_TOWER_X_MIN = 0.1;
+const PORTRAIT_TOWER_X_MAX = 0.9;
 
 const APP_SECRETS = window.APP_SECRETS || {};
 const REGISTRY_BASE_URL =
@@ -419,6 +422,57 @@ function renderScene() {
   }
 }
 
+function isPortraitLayout() {
+  return height > width;
+}
+
+function updateTowerLayoutForViewport() {
+  const left = isPortraitLayout() ? PORTRAIT_TOWER_X_MIN : 0.16;
+  const right = isPortraitLayout() ? PORTRAIT_TOWER_X_MAX : 0.84;
+  for (let i = 0; i < towers.length; i++) {
+    towers[i].xFactor = map(i, 0, TOWER_COUNT - 1, left, right);
+  }
+}
+
+function getTowerWidthFactor(tower) {
+  let maxFactor = 1.2;
+  for (const layer of tower.layers) {
+    if (layer.shapeType === "rectH") {
+      maxFactor = max(maxFactor, layer.rectWidthFactor);
+    } else if (layer.shapeType === "triangle") {
+      maxFactor = max(maxFactor, 1.14);
+    }
+  }
+  return maxFactor;
+}
+
+function computeBlockUnitForHorizontalFit() {
+  const pad = max(s(6), workW * 0.014);
+  let unitLimit = Infinity;
+
+  for (let i = 0; i < towers.length; i++) {
+    const widthFactor = max(MAX_LAYER_WIDTH_FACTOR, getTowerWidthFactor(towers[i]));
+    const centerX = workW * towers[i].xFactor;
+    const edgeRoom = min(centerX - pad, workW - centerX - pad);
+    unitLimit = min(unitLimit, (2 * edgeRoom) / widthFactor);
+  }
+
+  for (let i = 0; i < towers.length - 1; i++) {
+    const leftFactor = max(MAX_LAYER_WIDTH_FACTOR, getTowerWidthFactor(towers[i]));
+    const rightFactor = max(MAX_LAYER_WIDTH_FACTOR, getTowerWidthFactor(towers[i + 1]));
+    const centerSpacing = abs(towers[i + 1].xFactor - towers[i].xFactor) * workW;
+    const neededWidth = (blockUnitForPair(leftFactor, rightFactor, centerSpacing, pad));
+    unitLimit = min(unitLimit, neededWidth);
+  }
+
+  return max(10, unitLimit);
+}
+
+function blockUnitForPair(leftFactor, rightFactor, centerSpacing, pad) {
+  // blockUnit * leftFactor/2 + blockUnit * rightFactor/2 + pad <= centerSpacing
+  return (centerSpacing - pad) / ((leftFactor + rightFactor) * 0.5);
+}
+
 function drawFrameAndPanel() {
   borderPad = 0;
   workX = 0;
@@ -428,6 +482,7 @@ function drawFrameAndPanel() {
   scaleFactor = min(workW / REF_WIDTH, workH / REF_HEIGHT);
   horizonY = workY + workH * 0.52;
   groundY = workY + workH - s(12);
+  updateTowerLayoutForViewport();
   blockUnit = computeBlockUnitForTargetHeight();
 
   noStroke();
@@ -436,7 +491,7 @@ function drawFrameAndPanel() {
 }
 
 function computeBlockUnitForTargetHeight() {
-  const targetTopY = workY + workH * 0.2;
+  const targetTopY = workY + workH * (isPortraitLayout() ? 0.14 : 0.2);
   const targetTowerHeight = max(80, groundY - targetTopY);
   const randomLayerCount = MAX_LAYERS - 1;
   const randomAvgHeightFactor = (SQUARE_H_FACTOR + RECT_H_FACTOR) * 0.5;
@@ -444,7 +499,9 @@ function computeBlockUnitForTargetHeight() {
     randomLayerCount * randomAvgHeightFactor +
     TRIANGLE_H_FACTOR +
     (MAX_LAYERS - 1) * GAP_RATIO;
-  return targetTowerHeight / totalHeightFactor;
+  const heightUnit = targetTowerHeight / totalHeightFactor;
+  const widthUnit = computeBlockUnitForHorizontalFit();
+  return min(heightUnit, widthUnit);
 }
 
 function drawBackgroundTexture() {
