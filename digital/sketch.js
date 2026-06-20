@@ -8,6 +8,7 @@ let groundY;
 let oilTextureImg;
 let scaleFactor = 1;
 let blockUnit = 72;
+let layoutSizeKey = "";
 
 const towers = [];
 
@@ -43,9 +44,7 @@ const RECT_H_FACTOR = 0.64;
 const TRIANGLE_H_FACTOR = 0.92;
 const LAYER_GHOST_MS = 720;
 const MAX_LAYER_WIDTH_FACTOR = 2.05;
-const PORTRAIT_TOWER_X_MIN = 0.06;
-const PORTRAIT_TOWER_X_MAX = 0.94;
-const PORTRAIT_BLOCK_SCALE = 1.5;
+const RECT_ALLOCATION_RATIO = 0.8;
 
 const APP_SECRETS = window.APP_SECRETS || {};
 const REGISTRY_BASE_URL =
@@ -205,6 +204,7 @@ function handleWebSocketMessage(rawLine) {
 
 function windowResized() {
   resizeCanvas(windowWidth, windowHeight);
+  layoutSizeKey = "";
 }
 
 function initializeTowers() {
@@ -214,7 +214,7 @@ function initializeTowers() {
     const weightBoost = map(centerDistance, 0, (TOWER_COUNT - 1) * 0.5, 1.35, 0.9);
     towers.push({
       layers: [],
-      xFactor: map(i, 0, TOWER_COUNT - 1, 0.16, 0.84),
+      xFactor: (i + 0.5) / TOWER_COUNT,
       growthWeight: weightBoost
     });
   }
@@ -423,68 +423,21 @@ function renderScene() {
   }
 }
 
-function isPortraitLayout() {
-  return height > width;
+function getTowerAllocationWidth() {
+  return workW / TOWER_COUNT;
+}
+
+function getRectBlockWidth() {
+  return getTowerAllocationWidth() * RECT_ALLOCATION_RATIO;
 }
 
 function updateTowerLayoutForViewport() {
-  const left = isPortraitLayout() ? PORTRAIT_TOWER_X_MIN : 0.16;
-  const right = isPortraitLayout() ? PORTRAIT_TOWER_X_MAX : 0.84;
   for (let i = 0; i < towers.length; i++) {
-    towers[i].xFactor = map(i, 0, TOWER_COUNT - 1, left, right);
+    towers[i].xFactor = (i + 0.5) / TOWER_COUNT;
   }
 }
 
-function getTowerWidthFactor(tower) {
-  let maxFactor = 1.2;
-  for (const layer of tower.layers) {
-    if (layer.shapeType === "rectH") {
-      maxFactor = max(maxFactor, layer.rectWidthFactor);
-    } else if (layer.shapeType === "triangle") {
-      maxFactor = max(maxFactor, 1.14);
-    }
-  }
-  return maxFactor;
-}
-
-function getPlanningWidthFactor(tower) {
-  const actual = getTowerWidthFactor(tower);
-  if (isPortraitLayout()) {
-    return max(1.2, actual);
-  }
-  return max(MAX_LAYER_WIDTH_FACTOR, actual);
-}
-
-function computeBlockUnitForHorizontalFit() {
-  const pad = isPortraitLayout()
-    ? max(s(4), workW * 0.008)
-    : max(s(6), workW * 0.014);
-  let unitLimit = Infinity;
-
-  for (let i = 0; i < towers.length; i++) {
-    const widthFactor = getPlanningWidthFactor(towers[i]);
-    const centerX = workW * towers[i].xFactor;
-    const edgeRoom = min(centerX - pad, workW - centerX - pad);
-    unitLimit = min(unitLimit, (2 * edgeRoom) / widthFactor);
-  }
-
-  for (let i = 0; i < towers.length - 1; i++) {
-    const leftFactor = getPlanningWidthFactor(towers[i]);
-    const rightFactor = getPlanningWidthFactor(towers[i + 1]);
-    const centerSpacing = abs(towers[i + 1].xFactor - towers[i].xFactor) * workW;
-    const neededWidth = blockUnitForPair(leftFactor, rightFactor, centerSpacing, pad);
-    unitLimit = min(unitLimit, neededWidth);
-  }
-
-  return max(10, unitLimit);
-}
-
-function blockUnitForPair(leftFactor, rightFactor, centerSpacing, pad) {
-  // blockUnit * leftFactor/2 + blockUnit * rightFactor/2 + pad <= centerSpacing
-  return (centerSpacing - pad) / ((leftFactor + rightFactor) * 0.5);
-}
-
-function drawFrameAndPanel() {
+function syncLayoutMetrics() {
   borderPad = 0;
   workX = 0;
   workY = 0;
@@ -494,15 +447,20 @@ function drawFrameAndPanel() {
   horizonY = workY + workH * 0.52;
   groundY = workY + workH - s(12);
   updateTowerLayoutForViewport();
-  blockUnit = computeBlockUnitForTargetHeight();
-
-  noStroke();
-  fill(85, 25, 27, 238);
-  rect(workX, workY, workW, workH);
 }
 
-function computeBlockUnitForTargetHeight() {
-  const targetTopY = workY + workH * (isPortraitLayout() ? 0.14 : 0.2);
+function recomputeBlockUnitIfNeeded() {
+  const key = `${width}x${height}`;
+  if (key === layoutSizeKey) {
+    return;
+  }
+  layoutSizeKey = key;
+  blockUnit = computeBlockUnit();
+}
+
+function computeBlockUnit() {
+  const widthUnit = getRectBlockWidth() / MAX_LAYER_WIDTH_FACTOR;
+  const targetTopY = workY + workH * (height > width ? 0.14 : 0.2);
   const targetTowerHeight = max(80, groundY - targetTopY);
   const randomLayerCount = MAX_LAYERS - 1;
   const randomAvgHeightFactor = (SQUARE_H_FACTOR + RECT_H_FACTOR) * 0.5;
@@ -511,12 +469,16 @@ function computeBlockUnitForTargetHeight() {
     TRIANGLE_H_FACTOR +
     (MAX_LAYERS - 1) * GAP_RATIO;
   const heightUnit = targetTowerHeight / totalHeightFactor;
-  const widthUnit = computeBlockUnitForHorizontalFit();
-  let unit = min(heightUnit, widthUnit);
-  if (isPortraitLayout()) {
-    unit = min(heightUnit, unit * PORTRAIT_BLOCK_SCALE);
-  }
-  return unit;
+  return min(heightUnit, widthUnit);
+}
+
+function drawFrameAndPanel() {
+  syncLayoutMetrics();
+  recomputeBlockUnitIfNeeded();
+
+  noStroke();
+  fill(85, 25, 27, 238);
+  rect(workX, workY, workW, workH);
 }
 
 function drawBackgroundTexture() {
@@ -635,7 +597,7 @@ function getLayerDimensions(layer) {
     return { w: base * 1.2, h: base * SQUARE_H_FACTOR };
   }
   if (shapeType === "rectH") {
-    return { w: base * layer.rectWidthFactor, h: base * layer.rectHeightFactor };
+    return { w: getRectBlockWidth(), h: base * layer.rectHeightFactor };
   }
   return { w: base * 1.14, h: base * TRIANGLE_H_FACTOR };
 }
@@ -788,7 +750,7 @@ function drawBubblePhrase(
   index,
   blockCenterX,
   blockCenterY,
-  _blockW,
+  blockW,
   textValue,
   side,
   offsetX,
@@ -798,12 +760,19 @@ function drawBubblePhrase(
   const depthFromTop = towerLength - 1 - index;
   const alpha = map(depthFromTop, 0, FADE_DEPTH, 230, 18, true);
   const flashAlpha = flashOn ? alpha * 0.35 : alpha;
+  const allocationW = getTowerAllocationWidth();
+  const outward = allocationW * 0.08 + s(offsetX * 0.45);
+  const textX =
+    side === "left"
+      ? blockCenterX - blockW * 0.5 - outward
+      : blockCenterX + blockW * 0.5 + outward;
+  const textY = blockCenterY + s(offsetY);
 
   noStroke();
   fill(245, 235, 220, flashAlpha);
-  textSize(s(20));
-  textAlign(CENTER, CENTER);
-  text(textValue, blockCenterX, blockCenterY);
+  textSize(max(11, allocationW * 0.042));
+  textAlign(side === "left" ? RIGHT : LEFT, CENTER);
+  text(textValue, textX, textY, allocationW * 0.95);
 }
 
 function scrambleText(source) {
