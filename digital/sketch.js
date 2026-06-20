@@ -43,8 +43,9 @@ const RECT_H_FACTOR = 0.64;
 const TRIANGLE_H_FACTOR = 0.92;
 const LAYER_GHOST_MS = 720;
 const MAX_LAYER_WIDTH_FACTOR = 2.05;
-const PORTRAIT_TOWER_X_MIN = 0.1;
-const PORTRAIT_TOWER_X_MAX = 0.9;
+const PORTRAIT_TOWER_X_MIN = 0.06;
+const PORTRAIT_TOWER_X_MAX = 0.94;
+const PORTRAIT_BLOCK_SCALE = 1.5;
 
 const APP_SECRETS = window.APP_SECRETS || {};
 const REGISTRY_BASE_URL =
@@ -446,22 +447,32 @@ function getTowerWidthFactor(tower) {
   return maxFactor;
 }
 
+function getPlanningWidthFactor(tower) {
+  const actual = getTowerWidthFactor(tower);
+  if (isPortraitLayout()) {
+    return max(1.2, actual);
+  }
+  return max(MAX_LAYER_WIDTH_FACTOR, actual);
+}
+
 function computeBlockUnitForHorizontalFit() {
-  const pad = max(s(6), workW * 0.014);
+  const pad = isPortraitLayout()
+    ? max(s(4), workW * 0.008)
+    : max(s(6), workW * 0.014);
   let unitLimit = Infinity;
 
   for (let i = 0; i < towers.length; i++) {
-    const widthFactor = max(MAX_LAYER_WIDTH_FACTOR, getTowerWidthFactor(towers[i]));
+    const widthFactor = getPlanningWidthFactor(towers[i]);
     const centerX = workW * towers[i].xFactor;
     const edgeRoom = min(centerX - pad, workW - centerX - pad);
     unitLimit = min(unitLimit, (2 * edgeRoom) / widthFactor);
   }
 
   for (let i = 0; i < towers.length - 1; i++) {
-    const leftFactor = max(MAX_LAYER_WIDTH_FACTOR, getTowerWidthFactor(towers[i]));
-    const rightFactor = max(MAX_LAYER_WIDTH_FACTOR, getTowerWidthFactor(towers[i + 1]));
+    const leftFactor = getPlanningWidthFactor(towers[i]);
+    const rightFactor = getPlanningWidthFactor(towers[i + 1]);
     const centerSpacing = abs(towers[i + 1].xFactor - towers[i].xFactor) * workW;
-    const neededWidth = (blockUnitForPair(leftFactor, rightFactor, centerSpacing, pad));
+    const neededWidth = blockUnitForPair(leftFactor, rightFactor, centerSpacing, pad);
     unitLimit = min(unitLimit, neededWidth);
   }
 
@@ -501,7 +512,11 @@ function computeBlockUnitForTargetHeight() {
     (MAX_LAYERS - 1) * GAP_RATIO;
   const heightUnit = targetTowerHeight / totalHeightFactor;
   const widthUnit = computeBlockUnitForHorizontalFit();
-  return min(heightUnit, widthUnit);
+  let unit = min(heightUnit, widthUnit);
+  if (isPortraitLayout()) {
+    unit = min(heightUnit, unit * PORTRAIT_BLOCK_SCALE);
+  }
+  return unit;
 }
 
 function drawBackgroundTexture() {
