@@ -42,6 +42,32 @@ const SQUARE_H_FACTOR = 1.0;
 const RECT_H_FACTOR = 0.64;
 const TRIANGLE_H_FACTOR = 0.92;
 
+const APP_SECRETS = window.APP_SECRETS || {};
+const REGISTRY_BASE_URL =
+  APP_SECRETS.registryBaseUrl || "https://esp-device-registry.ktorn.workers.dev";
+const DEFAULT_DEVICE_ID = APP_SECRETS.deviceId || "MDS221-2026-2";
+
+const ITEM_SHAPE_MAP = {
+  1: "square",
+  2: "rectH",
+};
+
+const URL_CONFIG = readUrlConfig();
+let wsUrl = hasDirectWs(URL_CONFIG)
+  ? URL_CONFIG.ws || `ws://${URL_CONFIG.wsHost}:${URL_CONFIG.wsPort}`
+  : null;
+let registryState = needsRegistryLookup(URL_CONFIG)
+  ? "resolving"
+  : hasDirectWs(URL_CONFIG)
+    ? "bypassed"
+    : "no token";
+
+let socket = null;
+let socketStatus = "idle";
+let lastWeightMessage = "";
+let lastMessageAt = 0;
+let lastPlacedTowerIndex = -1;
+
 function preload() {
   oilTextureImg = loadImage("assets/oil-texture-reference.png");
 }
@@ -51,6 +77,7 @@ function setup() {
   frameRate(8);
   textFont("monospace");
   initializeTowers();
+  initWebSocketConnection();
 }
 
 function draw() {
@@ -88,7 +115,7 @@ function initializeTowers() {
 function addLayer(requestedShapeType) {
   const towerIndex = pickTowerIndex();
   if (towerIndex === -1) {
-    return;
+    return -1;
   }
 
   const targetTower = towers[towerIndex];
@@ -110,6 +137,149 @@ function addLayer(requestedShapeType) {
     bubbleOffsetX: random(28, 72),
     bubbleOffsetY: random(-10, 10)
   });
+
+  return towerIndex;
+}
+
+function removeLastLayer() {
+  if (lastPlacedTowerIndex >= 0 && towers[lastPlacedTowerIndex]?.layers.length > 0) {
+    towers[lastPlacedTowerIndex].layers.pop();
+    return;
+  }
+
+  for (let i = towers.length - 1; i >= 0; i--) {
+    if (towers[i].layers.length > 0) {
+      towers[i].layers.pop();
+      lastPlacedTowerIndex = i;
+      return;
+    }
+  }
+}
+
+function shapeForItemId(itemId) {
+  return ITEM_SHAPE_MAP[itemId] || "square";
+}
+
+function handleWeightMessage(line) {
+  const trimmed = line.trim();
+  if (!trimmed.startsWith("notify_")) {
+    return;
+  }
+
+  lastWeightMessage = trimmed;
+
+  const itemMatch = trimmed.match(/^notify_item_(\d+)$/);
+  if (itemMatch) {
+    const itemId = parseInt(itemMatch[1], 10);
+    lastPlacedTowerIndex = addLayer(shapeForItemId(itemId));
+    return;
+  }
+
+  if (trimmed === "notify_item_on") {
+    lastPlacedTowerIndex = addLayer("square");
+    return;
+  }
+
+  if (trimmed === "notify_item_off") {
+    removeLastLayer();
+  }
+}
+
+function readUrlConfig() {
+  const params = new URLSearchParams(window.location.search);
+  const wsHost = params.get("wsHost") || params.get("host");
+  return {
+    deviceId: params.get("deviceId") || DEFAULT_DEVICE_ID,
+    token: params.get("token") || APP_SECRETS.registryToken || null,
+    registry: params.get("registry") || REGISTRY_BASE_URL,
+    ws: params.get("ws"),
+    wsHost,
+    wsPort: params.get("wsPort") || params.get("port") || "81",
+  };
+}
+
+function hasDirectWs(config) {
+  return !!(config.ws || config.wsHost);
+}
+
+function needsRegistryLookup(config) {
+  return !hasDirectWs(config) && !!(config.deviceId && config.token);
+}
+
+async function lookupDeviceEndpoint(config) {
+  const base = config.registry.replace(/\/$/, "");
+  const url = new URL(`${base}/lookup`);
+  url.searchParams.set("device_id", config.deviceId);
+  url.searchParams.set("token", config.token);
+
+  const res = await fetch(url.toString());
+  if (!res.ok) {
+    throw new Error(`lookup ${res.status}`);
+  }
+  const data = await res.json();
+  if (!data.lan_ip) throw new Error("no lan_ip");
+  const port = data.ws_port || 81;
+  return `ws://${data.lan_ip}:${port}`;
+}
+
+function initWebSocketConnection() {
+  if (needsRegistryLookup(URL_CONFIG)) {
+    lookupDeviceEndpoint(URL_CONFIG)
+      .then((url) => {
+        wsUrl = url;
+        registryState = "ok";
+        connectWebSocket();
+      })
+      .catch((err) => {
+        registryState = err.message || "failed";
+        socketStatus = `registry ${registryState}`;
+      });
+  } else if (hasDirectWs(URL_CONFIG)) {
+    registryState = "bypassed";
+    connectWebSocket();
+  } else {
+    connectWebSocket();
+  }
+}
+
+function connectWebSocket() {
+  if (socket && socket.readyState === WebSocket.OPEN) return;
+  if (!wsUrl) {
+    socketStatus =
+      registryState === "resolving"
+        ? "registry lookup…"
+        : needsRegistryLookup(URL_CONFIG)
+          ? `registry ${registryState}`
+          : "set secrets.js or ?wsHost=";
+    return;
+  }
+
+  socketStatus = `connecting ${wsUrl}...`;
+
+  try {
+    socket = new WebSocket(wsUrl);
+  } catch (error) {
+    socketStatus = `WebSocket error: ${error.message}`;
+    return;
+  }
+
+  socket.onopen = () => {
+    socketStatus = `connected ${wsUrl.replace(/^ws:\/\//, "")}`;
+  };
+
+  socket.onclose = () => {
+    socketStatus = "disconnected (retry in 2s)";
+    setTimeout(connectWebSocket, 2000);
+  };
+
+  socket.onerror = () => {
+    socketStatus = "socket error";
+  };
+
+  socket.onmessage = (event) => {
+    handleWeightMessage(String(event.data));
+    lastMessageAt = millis();
+  };
 }
 
 function pickTowerIndex() {
@@ -201,6 +371,10 @@ function drawInstruction() {
   text("4 towers, 8 floors each. Top floor is triangle.", workX + s(16), workY + s(14));
   text("Press S for square, R for random-width horizontal rectangle.", workX + s(16), workY + s(34));
   text(`Total layers: ${getTotalLayers()} / ${TOWER_COUNT * MAX_LAYERS}`, workX + s(16), workY + s(54));
+  text(`WebSocket: ${socketStatus}`, workX + s(16), workY + s(74));
+  if (lastWeightMessage) {
+    text(`Last event: ${lastWeightMessage}`, workX + s(16), workY + s(94));
+  }
 }
 
 function drawTower() {
