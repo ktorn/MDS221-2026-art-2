@@ -98,6 +98,11 @@ function keyPressed() {
 
   const lower = key.toLowerCase();
 
+  if (lower === "f") {
+    fullscreen(!fullscreen());
+    return false;
+  }
+
   if (lower === "s" && !showSensorPane) {
     showSensorPane = true;
     sensorPendingCommand = null;
@@ -454,7 +459,7 @@ function drawInstruction() {
   textSize(s(14));
   textAlign(LEFT, TOP);
   text("4 towers, 8 floors each. Top floor is triangle.", workX + s(16), workY + s(14));
-  text("S: open sensor pane | Esc: close | R: test rect | P: save PNG", workX + s(16), workY + s(34));
+  text("S: sensor pane | F: fullscreen | Esc: close | R: test rect | P: save", workX + s(16), workY + s(34));
   text(`Total layers: ${getTotalLayers()} / ${TOWER_COUNT * MAX_LAYERS}`, workX + s(16), workY + s(54));
   text(`WebSocket: ${socketStatus}`, workX + s(16), workY + s(74));
   if (lastWeightMessage) {
