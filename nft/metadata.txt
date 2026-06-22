@@ -1,27 +1,33 @@
-title: Naive Babel Study
-creators:
-  - MDS221 Interactive Multimedia Installation (USJ Macau)
-description: |
-  Naive Babel Study is an interactive painterly tower piece inspired by the myth of Babel and geometric color-block composition. Four towers rise from a deep red ground, each floor a hand-painted block in earthy reds, blues, and ochres. Multilingual phrases—English, Chinese, Japanese, Italian, Russian, French, Portuguese, and Spanish—sit beside each layer, whispering how we build upward together.
+ARTWORK
+Naive Babel
 
-  Click the canvas to focus, then use the keyboard:
-  • S — add a square block to a randomly chosen tower (weighted toward centre towers)
-  • R — add a wide horizontal rectangle block
-  • P — save the current view as a PNG
-  • F — toggle fullscreen
+CREATOR
+Misty, Erin, Chen
 
-  Each tower holds up to eight floors; the eighth is always a triangle cap. When all four towers are complete (32 blocks total), the inscriptions scramble and pulse—a babel of symbols replacing the shared phrases.
+NFT PLATFORM
+Teia.art
 
-  On load the scene breathes gently: an amber sun disc pulses behind the empty towers, inviting you to begin stacking. Block placement triggers a brief emanating ghost that expands and fades from the new piece.
+BLOCKCHAIN
+Tezos
 
-  MDS221 – Interactive Multimedia Installation, University of Saint Joseph (USJ), Macau.
+DATE
+June 2026
 
-tags:
-  - interactive
-  - p5js
-  - generative
-  - tower
-  - babel
-  - painting
-  - MDS221
-  - USJ
+TAGS
+interactive, installation, usj, mds221, p5js, generative, tower, babel
+
+DESCRIPTION
+Inspired by Paul Klee's Castle and Sun, this work deconstructs his simplified, symbolic, hieroglyphic artistic style to reinterpret and translate the classic image of the "Tower of Babel" into a contemporary context. As an interactive installation, it invites the audience to participate in building with childlike innocence, personally completing the full cycle of construction – order – collapse. It visually presents the shift of language from clarity to chaos, exploring the nature of human communication, the dilemma of understanding, and the possibility of returning to authentic expression.
+
+This is an interactive artwork. Click the canvas to focus, then use the keyboard:
+
+S — add a square block to a randomly chosen tower
+R — add a wide horizontal rectangle block
+P — save the current view as a PNG
+F — toggle fullscreen
+
+Each tower holds up to eight floors; the eighth is always a triangle cap. When all four towers are complete (32 blocks total), the multilingual inscriptions scramble and pulse—a babel of symbols replacing the shared phrases.
+
+On load the scene breathes gently: an amber sun disc pulses behind the empty towers. Each new block triggers a brief ghost that expands and fades from the piece.
+
+Created by Misty, Erin, and Chen as part of MDS221 – Interactive Multimedia Installation, University of Saint Joseph (USJ), Macau.
