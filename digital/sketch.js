@@ -48,7 +48,7 @@ const RECT_ALLOCATION_RATIO = 0.8;
 
 const APP_SECRETS = window.APP_SECRETS || {};
 const REGISTRY_BASE_URL =
-  APP_SECRETS.registryBaseUrl || "https://esp-device-registry.ktorn.workers.dev";
+  APP_SECRETS.registryBaseUrl || "https://esp-device-registry.xxx.workers.dev";
 const DEFAULT_DEVICE_ID = APP_SECRETS.deviceId || "MDS221-2026-2";
 
 const ITEM_SHAPE_MAP = {

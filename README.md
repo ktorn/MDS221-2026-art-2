@@ -91,7 +91,7 @@ Commands work over **Serial Monitor** or **WebSocket** from the digital sketch s
 
 ### Connect the digital sketch (registry lookup)
 
-Same pattern as [MDS221-2026-art-4](https://github.com/ktorn/MDS221-2026-art-4):
+Same pattern as MDS221-2026-art-4:
 
 1. Copy `digital/secrets.example.js` to `digital/secrets.js` (same `registryToken` and `deviceId` as `secrets.h`).
 2. On startup the page calls the cloud registry `/lookup` endpoint and connects to `ws://<lan_ip>:81`.
